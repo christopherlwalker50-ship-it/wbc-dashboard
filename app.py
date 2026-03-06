@@ -39,6 +39,11 @@ def shorten(name):
     return WBC_NAME_SHORT.get(name, name)
 
 
+def _is_final_state(raw_status):
+    """Returns True for any game-complete state: Final, Game Over, or Completed Early (any variant)."""
+    return raw_status in ("Final", "Game Over") or "completed early" in raw_status.lower()
+
+
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 def _pt_today():
@@ -156,7 +161,7 @@ def get_wbc_stat_leaders():
         for game in date_entry.get("games", []):
             if game.get("gameType") in ("E", "S", "R"):
                 continue
-            if game.get("status", {}).get("detailedState") in ("Final", "Game Over"):
+            if _is_final_state(game.get("status", {}).get("detailedState", "")):
                 completed_pks.append(game["gamePk"])
 
     player_map = {}  # player_id -> {name, team, hr, rbi}
@@ -225,6 +230,13 @@ def build_wbc_df(schedule_data, user_tz, tz_abbr):
                 if inning and inning_state in ("Top", "Middle", "Bottom", "End"):
                     state_label = {"Top": "Top", "Middle": "Mid", "Bottom": "Bot", "End": "End"}.get(inning_state, inning_state)
                     status = f"{state_label} {inning}"
+            elif _is_final_state(raw_status):
+                ls = game.get("linescore", {})
+                innings = ls.get("currentInning")
+                if innings and innings != 9:
+                    status = f"F/{innings}"
+                else:
+                    status = "Final"
             game_time_utc = game["gameDate"]
             venue = game.get("venue", {}).get("name", "")
 
@@ -247,7 +259,7 @@ def build_wbc_df(schedule_data, user_tz, tz_abbr):
             away_display = away
             home_display = home
             if away_score is not None and home_score is not None:
-                if status in ("Final", "Game Over"):
+                if _is_final_state(raw_status):
                     if away_score > home_score:
                         away_display = f"⭐ {away} - {away_score}"
                         home_display = f"{home} - {home_score}"
@@ -305,7 +317,7 @@ def build_wbc_standings(schedule_data):
         for game in date_entry.get("games", []):
             if game.get("gameType") != "F":
                 continue
-            if game["status"]["detailedState"] not in ("Final", "Game Over"):
+            if not _is_final_state(game["status"]["detailedState"]):
                 continue
             away = shorten(game["teams"]["away"]["team"]["name"])
             home = shorten(game["teams"]["home"]["team"]["name"])
@@ -466,10 +478,10 @@ try:
 
     today_str = local_today.strftime("%Y-%m-%d")
     today_games = wbc_df[wbc_df["_date"] == today_str]
-    results = wbc_df[(wbc_df["_date"] < today_str) & (wbc_df["Status"].isin(["Final", "Game Over"]))].sort_values(["_round_order", "_sort_dt"], ascending=False)
+    results = wbc_df[(wbc_df["_date"] < today_str) & (wbc_df["_raw_status"].apply(_is_final_state))].sort_values(["_round_order", "_sort_dt"], ascending=False)
     game_log = wbc_df[
         (wbc_df["_date"] > today_str) |
-        ((wbc_df["_date"] == today_str) & (~wbc_df["_raw_status"].isin(["Final", "Game Over", "In Progress"])))
+        ((wbc_df["_date"] == today_str) & (~wbc_df["_raw_status"].apply(_is_final_state)) & (wbc_df["_raw_status"] != "In Progress"))
     ]
 
     if not today_games.empty:

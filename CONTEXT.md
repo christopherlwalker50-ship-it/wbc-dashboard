@@ -25,7 +25,7 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 ## Key Constants (app.py)
 - `TEAM_ID = 144` — Atlanta Braves MLB team ID (Braves tab hidden but code preserved)
 - `WBC_START = date(2026, 3, 4)` / `WBC_END = date(2026, 3, 18)` — extended +1 day past final to catch evening ET games whose UTC date rolls over
-- `PACIFIC = ZoneInfo("America/Los_Angeles")` — all dates/times displayed in PT
+- `PACIFIC = ZoneInfo("America/Los_Angeles")` — kept only for hidden Braves panel; WBC display uses visitor's detected timezone
 
 ---
 
@@ -34,7 +34,7 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 - **Page title**: "2026 World Baseball Classic"
 - **Background**: Sky blue (`#87CEEB`); column headers blue (`#5b9bd5`)
 - **Logo**: `WBC_logo.svg.png` displayed at width=380
-- **Caption**: "Data as of [date] PT"
+- **Caption**: "Data as of [date] [TZ]" — timezone adapts to visitor's browser
 - **Refresh button**: Clears `st.cache_data` and reruns
 - **Cache clear on new session**: `st.cache_data.clear()` called once when `initialized` not in `st.session_state`
 
@@ -43,7 +43,16 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 2. Pool Play Standings
 3. Stat Leaders (HR / RBI / Hits / Walks — 2×2 grid)
 4. Results (past completed games, newest first)
-5. Upcoming Games (future + today's non-final games)
+5. Upcoming Games (future + today's not-yet-started games)
+
+---
+
+## Visitor Timezone Detection
+- Uses `streamlit-js-eval` to read `Intl.DateTimeFormat().resolvedOptions().timeZone` from the browser
+- Falls back to UTC on the first render, then reruns automatically with the correct timezone
+- `user_tz` (ZoneInfo) and `tz_abbr` (e.g. "ET", "PT") computed after session state init
+- `local_today` used for "today's" date, `today_str`, and the caption
+- `build_wbc_df` accepts `user_tz` and `tz_abbr` as parameters — all game times displayed in visitor's local timezone
 
 ---
 
@@ -52,15 +61,19 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 - WBC gameType codes: F = pool play, D = quarterfinals, L = semifinals, W = championship
 - Games color-coded by round; winner marked with ⭐; "Game Over" treated same as "Final"
 - Round column: pool play shows pool name from `game["description"]` (e.g. "Pool C"); knockout rounds use label
-- Date column shows PT time: "Mar 5 - 1:30 PM PT"; midnight UTC → date only ("Mar 5")
+- Date column shows visitor's local time: "Mar 5 - 4:30 PM ET"; midnight UTC → date only ("Mar 5")
 - Windows-compatible time format (avoids `%-d`/`%-I`)
 
 ### `get_wbc_schedule()` — cached 120s
-- `GET https://statsapi.mlb.com/api/v1/schedule` with `sportId=51`, date range WBC_START–WBC_END
+- `GET https://statsapi.mlb.com/api/v1/schedule` with `sportId=51`, date range WBC_START–WBC_END, `hydrate=linescore`
+- Linescore hydration provides live inning data for in-progress games
 
-### `build_wbc_df(schedule_data)`
+### `build_wbc_df(schedule_data, user_tz, tz_abbr)`
 - Builds full schedule DataFrame sorted by `_round_order` then `_sort_dt`
-- Splits into: today_games / results (past final) / game_log (future + today non-final)
+- Stores `_raw_status` (original API `detailedState`) alongside display `Status`
+- For in-progress games: Status shown as "Top 4", "Bot 3", "Mid 6", "End 9" using `linescore.inningState` + `linescore.currentInning`
+- Splits into: today_games / results (past final) / game_log (future + today not-yet-started)
+- **game_log filter uses `_raw_status`** — excludes "Final", "Game Over", AND "In Progress" (games disappear from Upcoming the moment they start)
 
 ### `build_wbc_standings(schedule_data)`
 - Two-pass: first initializes all teams from scheduled pool play games; second accumulates W/L/RD from completed games
@@ -117,8 +130,9 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 
 ## Dependencies
 ```
-streamlit
-MLB-StatsAPI
-pandas
-requests
+streamlit==1.55.0
+pandas==2.3.3
+requests==2.32.5
+MLB-StatsAPI==1.9.0
+streamlit-js-eval==0.1.7
 ```
