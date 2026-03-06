@@ -216,8 +216,9 @@ def build_wbc_df(schedule_data, user_tz, tz_abbr):
             home = shorten(game["teams"]["home"]["team"]["name"])
             away_score = game["teams"]["away"].get("score")
             home_score = game["teams"]["home"].get("score")
-            status = game["status"]["detailedState"]
-            if status == "In Progress":
+            raw_status = game["status"]["detailedState"]
+            status = raw_status
+            if raw_status == "In Progress":
                 ls = game.get("linescore", {})
                 inning = ls.get("currentInning")
                 inning_state = ls.get("inningState", "")
@@ -268,6 +269,7 @@ def build_wbc_df(schedule_data, user_tz, tz_abbr):
             rows.append({
                 "_sort_dt": game_time_utc,
                 "_date": game_date,
+                "_raw_status": raw_status,
                 "Round": round_label,
                 "Date": date_str,
                 "Away": away_display,
@@ -275,7 +277,7 @@ def build_wbc_df(schedule_data, user_tz, tz_abbr):
                 "Status": status,
             })
 
-    df = pd.DataFrame(rows, columns=["_sort_dt", "_date", "Round", "Date", "Away", "Home", "Status"])
+    df = pd.DataFrame(rows, columns=["_sort_dt", "_date", "_raw_status", "Round", "Date", "Away", "Home", "Status"])
     df["_round_order"] = df["Round"].map(WBC_ROUND_ORDER).fillna(0)
     df = df.sort_values(["_round_order", "_sort_dt"]).reset_index(drop=True)
     return df
@@ -467,7 +469,7 @@ try:
     results = wbc_df[(wbc_df["_date"] < today_str) & (wbc_df["Status"].isin(["Final", "Game Over"]))].sort_values(["_round_order", "_sort_dt"], ascending=False)
     game_log = wbc_df[
         (wbc_df["_date"] > today_str) |
-        ((wbc_df["_date"] == today_str) & (~wbc_df["Status"].isin(["Final", "Game Over"])))
+        ((wbc_df["_date"] == today_str) & (~wbc_df["_raw_status"].isin(["Final", "Game Over", "In Progress"])))
     ]
 
     if not today_games.empty:
