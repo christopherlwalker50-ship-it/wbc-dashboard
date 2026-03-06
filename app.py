@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from datetime import date, timedelta, datetime, timezone
 from zoneinfo import ZoneInfo
+from streamlit_js_eval import streamlit_js_eval
 
 TEAM_ID = 144
 TEAM_NAME = "Atlanta Braves"
@@ -139,6 +140,7 @@ def get_wbc_schedule():
             "sportId": 51,
             "startDate": WBC_START.strftime("%Y-%m-%d"),
             "endDate": WBC_END.strftime("%Y-%m-%d"),
+            "hydrate": "linescore",
         },
         timeout=10,
     )
@@ -204,7 +206,7 @@ def get_wbc_stat_leaders():
     return hr_leaders, rbi_leaders, hits_leaders, bb_leaders
 
 
-def build_wbc_df(schedule_data):
+def build_wbc_df(schedule_data, user_tz, tz_abbr):
     rows = []
     for date_entry in schedule_data.get("dates", []):
         for game in date_entry.get("games", []):
@@ -215,23 +217,30 @@ def build_wbc_df(schedule_data):
             away_score = game["teams"]["away"].get("score")
             home_score = game["teams"]["home"].get("score")
             status = game["status"]["detailedState"]
+            if status == "In Progress":
+                ls = game.get("linescore", {})
+                inning = ls.get("currentInning")
+                inning_state = ls.get("inningState", "")
+                if inning and inning_state in ("Top", "Middle", "Bottom", "End"):
+                    state_label = {"Top": "Top", "Middle": "Mid", "Bottom": "Bot", "End": "End"}.get(inning_state, inning_state)
+                    status = f"{state_label} {inning}"
             game_time_utc = game["gameDate"]
-            game_date_pt = _to_pt_date(game_time_utc)
-            game_date = game_date_pt.strftime("%Y-%m-%d")
             venue = game.get("venue", {}).get("name", "")
 
-            # Format date for display in PT, with time if known (avoid %-d/%-I, Windows-incompatible)
+            # Parse once, convert to visitor's local timezone (avoid %-d/%-I, Windows-incompatible)
             try:
                 dt_utc = datetime.fromisoformat(game_time_utc.replace("Z", "+00:00"))
-                dt_pt = dt_utc.astimezone(PACIFIC)
-                month_day = f"{dt_pt.strftime('%b')} {dt_pt.day}"
-                if dt_pt.hour == 0 and dt_pt.minute == 0:
+                dt_local = dt_utc.astimezone(user_tz)
+                game_date = dt_local.date().strftime("%Y-%m-%d")
+                month_day = f"{dt_local.strftime('%b')} {dt_local.day}"
+                if dt_local.hour == 0 and dt_local.minute == 0:
                     date_str = month_day
                 else:
-                    hour = dt_pt.hour % 12 or 12
-                    am_pm = "AM" if dt_pt.hour < 12 else "PM"
-                    date_str = f"{month_day} - {hour}:{dt_pt.strftime('%M')} {am_pm} PT"
+                    hour = dt_local.hour % 12 or 12
+                    am_pm = "AM" if dt_local.hour < 12 else "PM"
+                    date_str = f"{month_day} - {hour}:{dt_local.strftime('%M')} {am_pm} {tz_abbr}"
             except Exception:
+                game_date = game_time_utc[:10]
                 date_str = game_date
 
             away_display = away
@@ -380,6 +389,18 @@ if "initialized" not in st.session_state:
     st.cache_data.clear()
     st.session_state.initialized = True
 
+# Detect visitor's browser timezone; falls back to UTC on first render, then reruns with correct tz
+_browser_tz = streamlit_js_eval(
+    js_expressions='Intl.DateTimeFormat().resolvedOptions().timeZone',
+    key='browser_tz'
+)
+try:
+    user_tz = ZoneInfo(_browser_tz) if _browser_tz else ZoneInfo("UTC")
+except Exception:
+    user_tz = ZoneInfo("UTC")
+tz_abbr = datetime.now(user_tz).strftime('%Z')
+local_today = datetime.now(user_tz).date()
+
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"] {
@@ -395,7 +416,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.image("WBC_logo.svg.png", width=380)
-st.caption(f"Data as of {_pt_today().strftime('%B %d, %Y')} PT")
+st.caption(f"Data as of {local_today.strftime('%B %d, %Y')} {tz_abbr}")
 
 if st.button("Refresh Data"):
     st.cache_data.clear()
@@ -436,12 +457,12 @@ if False:  # Atlanta Braves tab hidden — code preserved
 
 try:
     wbc_data = get_wbc_schedule()
-    wbc_df = build_wbc_df(wbc_data)
+    wbc_df = build_wbc_df(wbc_data, user_tz, tz_abbr)
 
     if wbc_df.empty:
         st.info("No WBC games found yet for 2026.")
 
-    today_str = _pt_today().strftime("%Y-%m-%d")
+    today_str = local_today.strftime("%Y-%m-%d")
     today_games = wbc_df[wbc_df["_date"] == today_str]
     results = wbc_df[(wbc_df["_date"] < today_str) & (wbc_df["Status"].isin(["Final", "Game Over"]))].sort_values(["_round_order", "_sort_dt"], ascending=False)
     game_log = wbc_df[
