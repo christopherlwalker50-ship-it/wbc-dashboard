@@ -376,6 +376,10 @@ def style_result(val):
 
 st.set_page_config(page_title="2026 World Baseball Classic", layout="wide")
 
+if "initialized" not in st.session_state:
+    st.cache_data.clear()
+    st.session_state.initialized = True
+
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"] {
