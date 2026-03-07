@@ -430,7 +430,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.image("WBC_logo.svg.png", width=380)
-st.caption(f"Data as of {local_today.strftime('%B %d, %Y')} {tz_abbr}")
 
 if st.button("Refresh Data"):
     st.cache_data.clear()

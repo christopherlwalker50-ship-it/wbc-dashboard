@@ -34,7 +34,6 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 - **Page title**: "2026 World Baseball Classic"
 - **Background**: Sky blue (`#87CEEB`); column headers blue (`#5b9bd5`)
 - **Logo**: `WBC_logo.svg.png` displayed at width=380
-- **Caption**: "Data as of [date] [TZ]" — timezone adapts to visitor's browser
 - **Refresh button**: Clears `st.cache_data` and reruns
 - **Cache clear on new session**: `st.cache_data.clear()` called once when `initialized` not in `st.session_state`
 
