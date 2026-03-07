@@ -119,6 +119,13 @@ Runs at `http://localhost:8501`. Launch via `start-braves-dashboard.bat`.
 
 ---
 
+## Google Analytics 4
+- Measurement ID: `G-DBXSTQT7Q7`
+- Injected into `venv/Lib/site-packages/streamlit/static/index.html` inside `<head>` (standard gtag.js snippet)
+- **Note:** This file is inside the venv — re-add the snippet if Streamlit is upgraded via pip
+
+---
+
 ## Known Issues / History
 - `statsapi.get("roster", ...)` — errored, replaced with direct `requests` call
 - `v1.1/schedule` — 404'd, replaced with v1 schedule + v1.1 game feed two-step approach
