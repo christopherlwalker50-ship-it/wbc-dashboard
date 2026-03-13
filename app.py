@@ -397,6 +397,107 @@ def style_result(val):
 
 
 
+def render_bracket_svg(wbc_df):
+    def esc(s):
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def trunc(s, n=27):
+        s = str(s)
+        return s if len(s) <= n else s[: n - 1] + "\u2026"
+
+    qf = wbc_df[wbc_df["Round"] == "Quarterfinal"].sort_values("_sort_dt").reset_index(drop=True)
+    sf = wbc_df[wbc_df["Round"] == "Semifinal"].sort_values("_sort_dt").reset_index(drop=True)
+    ch = wbc_df[wbc_df["Round"] == "Championship"].reset_index(drop=True)
+
+    CW, CH = 230, 82        # card width, height
+    HALF = CH // 2          # divider y-offset within card
+    QF_X, SF_X, FI_X = 10, 315, 620
+    MID1 = (QF_X + CW + SF_X) // 2     # connector midpoint QF→SF
+    MID2 = (SF_X + CW + FI_X) // 2     # connector midpoint SF→Final
+
+    TOP = 22                # space above first card for round labels
+    IN_GAP = 40             # gap between the two cards within a bracket pair
+    OUT_GAP = 78            # gap between the two bracket pairs
+
+    qy = [TOP, TOP + CH + IN_GAP, TOP + 2*CH + IN_GAP + OUT_GAP, TOP + 3*CH + 2*IN_GAP + OUT_GAP]
+    qc = [y + HALF for y in qy]                          # QF card centers
+    sc = [(qc[0] + qc[1]) // 2, (qc[2] + qc[3]) // 2]  # SF card centers
+    sy = [c - HALF for c in sc]                          # SF card tops
+
+    fc = (sc[0] + sc[1]) // 2
+    fy = fc - HALF
+
+    W = FI_X + CW + 10
+    H = max(qy[3] + CH, sy[1] + CH, fy + CH) + 20
+
+    LC = "#888"
+    STYLE = {
+        "Quarterfinal": {"bg": "#1a3a2a", "tx": "#90d890", "bd": "#3a6a4a", "dv": "#2a5a3a", "sm": "#507050"},
+        "Semifinal":    {"bg": "#3a2710", "tx": "#f0b870", "bd": "#7a5020", "dv": "#6a4010", "sm": "#806040"},
+        "Championship": {"bg": "#4a3800", "tx": "#ffd700", "bd": "#8a6800", "dv": "#6a5000", "sm": "#907800"},
+    }
+
+    def card_svg(x, y, row, rnd):
+        s = STYLE[rnd]
+        away = esc(trunc(row["Away"]))
+        home = esc(trunc(row["Home"]))
+        info = esc(trunc(row["Date"] if row["_raw_status"] == "Scheduled" else row["Status"], 32))
+        return (
+            f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="5" ry="5"'
+            f' fill="{s["bg"]}" stroke="{s["bd"]}" stroke-width="1.5"/>'
+            f'<line x1="{x+1}" y1="{y+HALF}" x2="{x+CW-1}" y2="{y+HALF}"'
+            f' stroke="{s["dv"]}" stroke-width="1"/>'
+            f'<text x="{x+10}" y="{y+26}" font-size="13" fill="{s["tx"]}"'
+            f' font-family="sans-serif">{away}</text>'
+            f'<text x="{x+10}" y="{y+59}" font-size="13" fill="{s["tx"]}"'
+            f' font-family="sans-serif">{home}</text>'
+            f'<text x="{x + CW//2}" y="{y+76}" font-size="9" fill="{s["sm"]}"'
+            f' font-family="sans-serif" text-anchor="middle" font-weight="bold">{info}</text>'
+        )
+
+    def conn_svg(rx, cy1, cy2, lx, mx):
+        my = (cy1 + cy2) // 2
+        return (
+            f'<line x1="{rx}" y1="{cy1}" x2="{mx}" y2="{cy1}" stroke="{LC}" stroke-width="1.5"/>'
+            f'<line x1="{rx}" y1="{cy2}" x2="{mx}" y2="{cy2}" stroke="{LC}" stroke-width="1.5"/>'
+            f'<line x1="{mx}" y1="{cy1}" x2="{mx}" y2="{cy2}" stroke="{LC}" stroke-width="1.5"/>'
+            f'<line x1="{mx}" y1="{my}" x2="{lx}" y2="{my}" stroke="{LC}" stroke-width="1.5"/>'
+        )
+
+    SCALE = 1.5
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{int(W * SCALE)}" height="{int(H * SCALE)}"'
+        f' style="background:transparent;display:block;overflow:visible">',
+        f'<g transform="scale({SCALE})">',
+    ]
+
+    for lx, lbl in [(QF_X + CW//2, "QUARTERFINALS"), (SF_X + CW//2, "SEMIFINALS"), (FI_X + CW//2, "CHAMPIONSHIP")]:
+        out.append(
+            f'<text x="{lx}" y="14" text-anchor="middle" font-size="10" fill="#000"'
+            f' font-family="sans-serif" font-weight="bold" letter-spacing="1">{lbl}</text>'
+        )
+
+    QFR = QF_X + CW
+    SFR = SF_X + CW
+    if len(qf) >= 2:
+        out.append(conn_svg(QFR, qc[0], qc[1], SF_X, MID1))
+    if len(qf) >= 4:
+        out.append(conn_svg(QFR, qc[2], qc[3], SF_X, MID1))
+    if len(sf) >= 2:
+        out.append(conn_svg(SFR, sc[0], sc[1], FI_X, MID2))
+
+    for i in range(min(len(qf), 4)):
+        out.append(card_svg(QF_X, qy[i], qf.iloc[i], "Quarterfinal"))
+    for i in range(min(len(sf), 2)):
+        out.append(card_svg(SF_X, sy[i], sf.iloc[i], "Semifinal"))
+    if len(ch) > 0:
+        out.append(card_svg(FI_X, fy, ch.iloc[0], "Championship"))
+
+    out.append('</g>')
+    out.append('</svg>')
+    return '\n'.join(out)
+
+
 st.set_page_config(page_title="2026 World Baseball Classic", layout="wide")
 
 if "initialized" not in st.session_state:
@@ -483,16 +584,14 @@ try:
         ((wbc_df["_date"] == today_str) & (~wbc_df["_raw_status"].apply(_is_final_state)) & (wbc_df["_raw_status"] != "In Progress"))
     ]
 
-    if not today_games.empty:
-        st.subheader("Today's Games")
-        today_display = today_games[["Round", "Date", "Away", "Home", "Status"]]
-        st.dataframe(today_display.style.apply(style_wbc_row, axis=1), hide_index=True)
+    tournament_rounds = {"Quarterfinal", "Semifinal", "Championship"}
+    in_tournament_mode = not wbc_df[wbc_df["Round"].isin(tournament_rounds)].empty
 
     pool_standings = build_wbc_standings(wbc_data)
-    if pool_standings:
-        st.subheader("Pool Play Standings")
-        cols = st.columns(len(pool_standings))
-        for i, (pool_name, sdf) in enumerate(pool_standings.items()):
+
+    def render_standings(standings):
+        cols = st.columns(len(standings))
+        for i, (pool_name, sdf) in enumerate(standings.items()):
             with cols[i]:
                 st.caption(pool_name)
                 st.dataframe(
@@ -501,51 +600,85 @@ try:
                     use_container_width=True,
                 )
 
-    try:
-        hr_leaders, rbi_leaders, hits_leaders, bb_leaders = get_wbc_stat_leaders()
-        col_hr, col_rbi = st.columns(2)
-        with col_hr:
-            st.subheader("Home Run Leaders")
-            if hr_leaders:
-                hr_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "HR": p["hr"]} for p in hr_leaders])
-                hr_df.index = range(1, len(hr_df) + 1)
-                st.dataframe(hr_df, use_container_width=True)
-            else:
-                st.info("No home runs hit yet.")
-        with col_rbi:
-            st.subheader("RBI Leaders")
-            if rbi_leaders:
-                rbi_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "RBI": p["rbi"]} for p in rbi_leaders])
-                rbi_df.index = range(1, len(rbi_df) + 1)
-                st.dataframe(rbi_df, use_container_width=True)
-            else:
-                st.info("No RBIs recorded yet.")
-        col_hits, col_bb = st.columns(2)
-        with col_hits:
-            st.subheader("Hits Leaders")
-            if hits_leaders:
-                hits_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "H": p["hits"]} for p in hits_leaders])
-                hits_df.index = range(1, len(hits_df) + 1)
-                st.dataframe(hits_df, use_container_width=True)
-            else:
-                st.info("No hits recorded yet.")
-        with col_bb:
-            st.subheader("Walk Leaders")
-            if bb_leaders:
-                bb_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "BB": p["bb"]} for p in bb_leaders])
-                bb_df.index = range(1, len(bb_df) + 1)
-                st.dataframe(bb_df, use_container_width=True)
-            else:
-                st.info("No walks recorded yet.")
-    except Exception as e:
-        st.error(f"Could not load stat leaders: {e}")
+    def render_stat_leaders():
+        try:
+            hr_leaders, rbi_leaders, hits_leaders, bb_leaders = get_wbc_stat_leaders()
+            col_hr, col_rbi = st.columns(2)
+            with col_hr:
+                st.subheader("Home Run Leaders")
+                if hr_leaders:
+                    hr_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "HR": p["hr"]} for p in hr_leaders])
+                    hr_df.index = range(1, len(hr_df) + 1)
+                    st.dataframe(hr_df, use_container_width=True)
+                else:
+                    st.info("No home runs hit yet.")
+            with col_rbi:
+                st.subheader("RBI Leaders")
+                if rbi_leaders:
+                    rbi_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "RBI": p["rbi"]} for p in rbi_leaders])
+                    rbi_df.index = range(1, len(rbi_df) + 1)
+                    st.dataframe(rbi_df, use_container_width=True)
+                else:
+                    st.info("No RBIs recorded yet.")
+            col_hits, col_bb = st.columns(2)
+            with col_hits:
+                st.subheader("Hits Leaders")
+                if hits_leaders:
+                    hits_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "H": p["hits"]} for p in hits_leaders])
+                    hits_df.index = range(1, len(hits_df) + 1)
+                    st.dataframe(hits_df, use_container_width=True)
+                else:
+                    st.info("No hits recorded yet.")
+            with col_bb:
+                st.subheader("Walk Leaders")
+                if bb_leaders:
+                    bb_df = pd.DataFrame([{"Player": p["name"], "Country": p["team"], "BB": p["bb"]} for p in bb_leaders])
+                    bb_df.index = range(1, len(bb_df) + 1)
+                    st.dataframe(bb_df, use_container_width=True)
+                else:
+                    st.info("No walks recorded yet.")
+        except Exception as e:
+            st.error(f"Could not load stat leaders: {e}")
 
-    if not results.empty:
+    if in_tournament_mode:
+        tab_tourn, tab_pool, tab_stats = st.tabs(["🏆 Tournament", "📋 Pool Play Results", "📊 Offensive Leaders"])
+        with tab_tourn:
+            st.markdown(
+                f'<div style="overflow-x:auto;padding:10px 0">{render_bracket_svg(wbc_df)}</div>',
+                unsafe_allow_html=True,
+            )
+        with tab_pool:
+            if pool_standings:
+                st.subheader("Pool Play Standings")
+                render_standings(pool_standings)
+            pool_results = wbc_df[
+                wbc_df["Round"].str.startswith("Pool") &
+                wbc_df["_raw_status"].apply(_is_final_state)
+            ].sort_values("_sort_dt", ascending=False)
+            if not pool_results.empty:
+                st.subheader("Game Results")
+                st.dataframe(
+                    pool_results[["Round", "Date", "Away", "Home"]].style.apply(style_wbc_row, axis=1),
+                    hide_index=True,
+                )
+        with tab_stats:
+            render_stat_leaders()
+    else:
+        if not today_games.empty:
+            st.subheader("Today's Games")
+            today_display = today_games[["Round", "Date", "Away", "Home", "Status"]]
+            st.dataframe(today_display.style.apply(style_wbc_row, axis=1), hide_index=True)
+        if pool_standings:
+            st.subheader("Pool Play Standings")
+            render_standings(pool_standings)
+        render_stat_leaders()
+
+    if not in_tournament_mode and not results.empty:
         st.subheader("Results")
         results_display = results[["Round", "Date", "Away", "Home"]]
         st.dataframe(results_display.style.apply(style_wbc_row, axis=1), hide_index=True)
 
-    if not game_log.empty:
+    if not in_tournament_mode and not game_log.empty:
         st.subheader("Upcoming Games")
         game_log_display = game_log[["Round", "Date", "Away", "Home"]]
         st.dataframe(game_log_display.style.apply(style_wbc_row, axis=1), hide_index=True)
